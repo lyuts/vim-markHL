@@ -5,7 +5,8 @@
 "  
 "  USAGE:
 "
-"  nnoremap <silent> <F2> :call ToggleHLMark("Marks")<CR>
+"  nnoremap <silent> <F2> :ToggleLocalMark<CR>
+"  nnoremap <silent> <C-F2> :ToggleGlobalMark<CR>
 "  nnoremap <silent> <S-F2> :MarksBrowser<CR>
 "  nnoremap <silent> <S-A-F2> :call clearmatches()<CR>
 "
@@ -26,52 +27,119 @@
 "
 "  Enjoy...
 
-hi Marks term=reverse ctermfg=0 ctermbg=Yellow guibg=Grey40
+call DetectOption("g:markHLGroupName", "Marks")
 
-function! HLMarks(group)
-	call clearmatches()
-	let index = char2nr('a')
-	while index < char2nr('z')
-		call matchadd( a:group, '\%'.line( "'".nr2char(index)).'l')
-		let index = index + 1
+let s:gMarkStart = 'A'
+let s:gMarkEnd = 'Z'
+let s:lMarkStart = 'a'
+let s:lMarkEnd = 'z'
+
+hi LocalMarks term=reverse ctermfg=0 ctermbg=Yellow guibg=Grey40
+hi GlobalMarks term=reverse ctermfg=0 ctermbg=Cyan guibg=Grey40
+
+command ToggleLocalMark :call ToggleHLMark()
+command ToggleGlobalMark :call ToggleHLMark(1)
+
+function! s:GetFilePathForMark(mark)
+    let bufferName = bufname(getpos("'".a:mark)[0])
+    if bufferName[0] != "/"
+        let bufferName = getcwd()."/".bufferName
+    endif
+    return bufferName
+endfunction
+
+function! s:MarkBelongsToCurrentFile(mark)
+    let markPos = getpos("'".a:mark)[:1] " [bufnum, lnum]
+    if s:IsGlobalMark(a:mark) != 0
+        if s:GetFilePathForMark(a:mark) == expand("%:p") && markPos[1] > 0
+            return 1
+        endif
+    elseif s:IsLocalMark(a:mark) != 0 && getpos("'".a:mark)[1] != 0
+        return 1
+    else
+"        echohl Error | echomsg "[markHL::s:MarkBelongsToCurrentFile] Invalid or nonexisting mark: ".a:mark."!" | echohl None
+        return 0
+    endif
+endfunction
+
+function! s:HighlightMarks(group, from, to)
+	let index = char2nr(a:from)
+	while index <= char2nr(a:to)
+        if s:MarkBelongsToCurrentFile(nr2char(index)) != 0
+		    call matchadd(a:group, '\%'.line( "'".nr2char(index)).'l')
+        endif
+        let index = index + 1
 	endwhile
 endfunction
 
-function! ToggleHLMark(group)
-    " Available marks are 97..122
-	let index = char2nr('a')
-    let markExists = 0
-    let freeMarkIndex = 0
-	while index <= char2nr('z')
-        let curMarkPos = line("'".nr2char(index))
-        if line(".") == curMarkPos
-            let markExists = 1
-            break
-        elseif curMarkPos == 0 && freeMarkIndex == 0
-            let freeMarkIndex = index
+function! HLMarks()
+	call clearmatches()
+    call s:HighlightMarks("Local".g:markHLGroupName, s:lMarkStart, s:lMarkEnd)
+    call s:HighlightMarks("Global".g:markHLGroupName, s:gMarkStart, s:gMarkEnd)
+endfunction
+
+function! ToggleHLMark(...)
+    " Available marks are 65..90 - Global
+    " Available marks are 97..122 - Local
+    if a:0 > 0
+        let markRangeStart = s:gMarkStart
+        let markRangeEnd = s:gMarkEnd
+    else
+        let markRangeStart = s:lMarkStart
+        let markRangeEnd = s:lMarkEnd
+    endif
+
+    let index = char2nr(markRangeStart)
+    let markIndexToRemove = 0
+    let markIndexToSet = 0
+	while index <= char2nr(markRangeEnd) && (markIndexToRemove == 0)
+        let mark = nr2char(index)
+        if count(getpos("'".mark), 0) != 4 " mark is set, i.e. not [0,0,0,0]
+            if s:MarkBelongsToCurrentFile(mark)
+                if line('.') == line("'".mark)
+                    let markIndexToRemove = index
+                endif
+            else
+                if s:IsGlobalMark(mark) == 0 && markIndexToSet == 0
+                    let markIndexToSet = index
+                endif
+            endif
+        elseif markIndexToSet == 0
+            let markIndexToSet = index
         endif
 		let index = index + 1
 	endwhile
 
-    if markExists == 1
-        call DelHLMark(a:group, nr2char(index))
+    if markIndexToRemove
+        call DelHLMark(nr2char(markIndexToRemove))
     else
-        call AddHLMark(a:group, nr2char(freeMarkIndex))
+        call AddHLMark(nr2char(markIndexToSet))
     endif
 endfunction
 
-function! AddHLMark(group, markIndex)
-	if a:markIndex <= 'z'
-		exe 'normal m'.a:markIndex
-		call HLMarks(a:group)
+function! AddHLMark(mark)
+	if s:IsLocalMark(a:mark) || s:IsGlobalMark(a:mark)
+		exe 'normal m'.a:mark
+		call HLMarks()
+    else
+        echohl Error | echomsg "[markHL] Invalid mark: ".a:mark."!" | echohl None
 	endif
 endfunction
 
-function! DelHLMark(group, markIndex)
-    exe 'delmarks '.a:markIndex
-    call HLMarks(a:group)
+function! DelHLMark(mark)
+	if s:IsLocalMark(a:mark) || s:IsGlobalMark(a:mark)
+        exe 'delmarks '.a:mark
+        call HLMarks()
+    else
+        echohl Error | echomsg "[markHL] Invalid mark: ".a:mark."!" | echohl None
+	endif
 endfunction
 
-nmap <silent> <F5> :call ToggleHLMark("Marks")<CR>
-nmap <silent> <S-F5> :call HLMarks("Marks")<CR>
-nmap <silent> <S-A-F5> :call clearmatches()<CR>
+function! s:IsGlobalMark(mark)
+    return a:mark >= s:gMarkStart && a:mark <= s:gMarkEnd
+endfunction
+
+function! s:IsLocalMark(mark)
+    return a:mark >= s:lMarkStart && a:mark <= s:lMarkEnd
+endfunction
+
