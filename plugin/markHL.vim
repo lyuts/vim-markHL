@@ -37,8 +37,8 @@ let s:lMarkEnd = 'z'
 hi LocalMarks term=reverse ctermfg=0 ctermbg=Yellow guibg=Grey40
 hi GlobalMarks term=reverse ctermfg=0 ctermbg=Cyan guibg=Grey40
 
-command ToggleLocalMark :call ToggleHLMark()
-command ToggleGlobalMark :call ToggleHLMark(1)
+command! ToggleLocalMark :call ToggleHLMark()
+command! ToggleGlobalMark :call ToggleHLMark(1)
 
 function! s:GetFilePathForMark(mark)
     let bufferName = bufname(getpos("'".a:mark)[0])
